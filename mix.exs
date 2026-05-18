@@ -2,7 +2,7 @@ defmodule Tds.Mixfile do
   use Mix.Project
 
   @source_url "https://github.com/elixir-ecto/tds"
-  @version "2.3.7"
+  @version "2.3.8"
 
   def project do
     [
@@ -33,7 +33,7 @@ defmodule Tds.Mixfile do
 
   defp deps do
     [
-      {:decimal, "~> 1.9 or ~> 2.0"},
+      {:decimal, "~> 1.9 or ~> 2.0 or ~> 3.0"},
       {:jason, "~> 1.0", optional: true},
       {:db_connection, "~> 2.1"},
       {:ex_doc, "~> 0.40.1", only: :dev, runtime: false, warn_if_outdated: true},
@@ -49,7 +49,7 @@ defmodule Tds.Mixfile do
       description: "Microsoft SQL Server client (Elixir implementation of the MS TDS protocol)",
       name: "tds",
       files: ["lib", "mix.exs", "README*", "CHANGELOG*", "LICENSE*"],
-      maintainers: ["Kevin Seidel"],
+      maintainers: ["Milan Jaric"],
       licenses: ["Apache-2.0"],
       links: %{"Github" => @source_url}
     ]
