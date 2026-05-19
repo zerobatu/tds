@@ -269,4 +269,125 @@ defmodule Tds.StreamTest do
       assert [%Tds.Result{rows: [[42, 1]]}] = data_results2
     end)
   end
+
+  @tag :stream
+  test "stream processes rows lazily in batches", context do
+    pid = context[:pid]
+
+    :ok =
+      query(
+        "IF OBJECT_ID('stream_lazy', 'U') IS NOT NULL DROP TABLE stream_lazy; CREATE TABLE stream_lazy (id INT PRIMARY KEY, val INT);",
+        []
+      )
+
+    values = Enum.map_join(1..20, ", ", fn i -> "(#{i}, #{i * 100})" end)
+    :ok = query("INSERT INTO stream_lazy (id, val) VALUES #{values};", [])
+
+    Tds.transaction(pid, fn conn ->
+      stream =
+        Tds.stream(conn, "SELECT id, val FROM stream_lazy ORDER BY id", [], max_rows: 4)
+
+      batches =
+        stream
+        |> Stream.map(fn %Tds.Result{rows: rows, num_rows: n} -> {rows, n} end)
+        |> Enum.to_list()
+
+      data_batches = Enum.filter(batches, fn {_, n} -> n > 0 end)
+
+      assert length(data_batches) == 5
+
+      for {rows, n} <- data_batches do
+        assert n == 4
+        assert length(rows) == 4
+      end
+
+      all_ids =
+        data_batches
+        |> Enum.flat_map(fn {rows, _} -> Enum.map(rows, fn [id, _val, _rowstat] -> id end) end)
+
+      assert all_ids == Enum.to_list(1..20)
+    end)
+
+    :ok = query("DROP TABLE stream_lazy", [])
+  end
+
+  @tag :stream
+  test "stream processes rows with side effects per batch", context do
+    pid = context[:pid]
+
+    :ok =
+      query(
+        "IF OBJECT_ID('stream_side_effects', 'U') IS NOT NULL DROP TABLE stream_side_effects; CREATE TABLE stream_side_effects (id INT PRIMARY KEY);",
+        []
+      )
+
+    :ok = query("INSERT INTO stream_side_effects (id) VALUES (1), (2), (3), (4), (5), (6);", [])
+
+    Tds.transaction(pid, fn conn ->
+      stream =
+        Tds.stream(conn, "SELECT id FROM stream_side_effects ORDER BY id", [], max_rows: 2)
+
+      {:ok, agent} = Agent.start_link(fn -> [] end)
+
+      stream
+      |> Stream.each(fn %Tds.Result{rows: rows, num_rows: n} ->
+        if n > 0 do
+          ids = Enum.map(rows, fn [id, _rowstat] -> id end)
+          Agent.update(agent, fn acc -> acc ++ ids end)
+        end
+      end)
+      |> Stream.run()
+
+      collected_ids = Agent.get(agent, & &1)
+      Agent.stop(agent)
+
+      assert collected_ids == [1, 2, 3, 4, 5, 6]
+    end)
+
+    :ok = query("DROP TABLE stream_side_effects", [])
+  end
+
+  @tag :stream
+  test "stream chunks arrive progressively and can be transformed", context do
+    pid = context[:pid]
+
+    :ok =
+      query(
+        "IF OBJECT_ID('stream_transform', 'U') IS NOT NULL DROP TABLE stream_transform; CREATE TABLE stream_transform (id INT PRIMARY KEY, name NVARCHAR(50));",
+        []
+      )
+
+    :ok =
+      query(
+        "INSERT INTO stream_transform (id, name) VALUES (1, N'alice'), (2, N'bob'), (3, N'carol'), (4, N'dave'), (5, N'eve'), (6, N'frank');",
+        []
+      )
+
+    Tds.transaction(pid, fn conn ->
+      stream =
+        Tds.stream(conn, "SELECT id, name FROM stream_transform ORDER BY id", [], max_rows: 2)
+
+      names =
+        stream
+        |> Stream.flat_map(fn %Tds.Result{rows: rows, num_rows: n} ->
+          if n > 0 do
+            Enum.map(rows, fn [id, name, _rowstat] -> {id, name} end)
+          else
+            []
+          end
+        end)
+        |> Enum.to_list()
+
+      assert names == [
+               {1, "alice"},
+               {2, "bob"},
+               {3, "carol"},
+               {4, "dave"},
+               {5, "eve"},
+               {6, "frank"}
+             ]
+    end)
+
+    :ok = query("DROP TABLE stream_transform", [])
+  end
 end
