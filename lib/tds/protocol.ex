@@ -71,6 +71,15 @@ defmodule Tds.Protocol do
       |> Keyword.put_new(:hostname, System.get_env("MSSQLHOST") || "localhost")
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
+    # Federated authentication sends the access token inside the LOGIN7
+    # message, an encrypted connection is required in that case
+    opts =
+      if not is_nil(opts[:access_token]) and opts[:ssl] not in [:on, :required, true] do
+        Keyword.put(opts, :ssl, :required)
+      else
+        opts
+      end
+
     s = %__MODULE__{}
 
     case opts[:instance] do
@@ -942,7 +951,9 @@ defmodule Tds.Protocol do
   end
 
   defp clean_opts(opts) do
-    Keyword.put(opts, :password, :REDACTED)
+    opts
+    |> Keyword.put(:password, :REDACTED)
+    |> Keyword.put(:access_token, :REDACTED)
   end
 
   @spec conn_opts(Keyword.t()) :: list() | no_return
