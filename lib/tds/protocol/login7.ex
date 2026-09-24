@@ -27,9 +27,10 @@ defmodule Tds.Protocol.Login7 do
   # extension block (MS-TDS 2.2.6.5)
   @f_extension 0x10
   # FeatureExt FEDAUTH, Security Token library (MS-TDS 2.2.6.5)
+  # The Options byte is bFedAuthLibrary (bits 1-3) << 1 | fFedAuthEcho (bit 0)
   @fed_auth_feature_id 0x02
   @fed_auth_security_token_library 0x01
-  @fed_auth_echo_bit 0x80
+  @fed_auth_echo 0x01
   @feature_ext_terminator 0xFF
 
   defstruct [
@@ -252,21 +253,31 @@ defmodule Tds.Protocol.Login7 do
         @feature_ext_terminator>>
   end
 
-  # FEDAUTH FeatureExt data for the Security Token library
-  # (bFedAuthLibrary = 0x01, MS-TDS 2.2.6.5): Options + FedAuthToken + [Nonce]
+  # FEDAUTH FeatureExt data for the Security Token library (MS-TDS 2.2.6.5)
+  # options + FedAuthToken + [Nonce]
+  #
+  # Options byte layout: bFedAuthLibrary occupies bits 1-3 (Security Token
+  # library = 0x01, shifted left by 1) and fFedAuthEcho is bit 0.
+  # FedAuthToken is encodeed as UTF-16EL (UCS-2), matching the Unicode String
+  # encoding used elsewhere in LOGIN7, with TokenLength set to its UTF-16LE
+  # by length
   defp encode_fed_auth_feature_data(%__MODULE__{
          fed_auth_token: token,
          fed_auth_echo: echo,
          nonce: nonce
        }) do
+    library_bits = Bitwise.bsl(@fed_auth_security_token_library, 1)
+
     options =
       if echo,
-        do: Bitwise.bor(@fed_auth_security_token_library, @fed_auth_echo_bit),
-        else: @fed_auth_security_token_library
+        do: Bitwise.bor(library_bits, @fed_auth_echo),
+        else: library_bits
 
     nonce = if echo and is_binary(nonce), do: nonce, else: <<>>
 
-    <<options>> <> <<byte_size(token)::little-size(32)>> <> token <> nonce
+    token_bin = UCS2.from_string(token)
+
+    <<options>> <> <<byte_size(token_bin)::little-size(32)>> <> token_bin <> nonce
   end
 
   # Return the current pid
