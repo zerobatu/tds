@@ -66,17 +66,22 @@ defmodule Login7Test do
       username: ""
     }
 
-    # packet header: type 0x10, status EOM, length 263
+    # packet header: type 0x10, status EOM, length 275 (263 + 12, since the
+    # UCS/UTF-16LE token is twice the byte size of the raw ASCCI token)
     # LOGIN7 Length
     # fixed login, OptionFlags3 has fExtension (0x10) set
     # offset table, ibExtension/cbExtension point to the extension block
     # variable data: host, app name, server name, ODBC, database
     # extension: ibFeatureExtLong DWORD pointing to the FeatureExt block
-    # FeatureExt: FEDAUTH (0x02), data len, Options (0x81 = token lib + echo),
-    # token length, token, nonce, terminator
+    # FeatureExt: FEDAUTH (0x02), data len, Options (0x03 = bFedAuthLibrary
+    # 0x01 << 1 | fFedAuthEcho 0x01), token length (UTF-16LE byte size),
+    # token (UTF-16LE), nonce, terminator
+    token_bin = Tds.Encoding.UCS2.from_string("access-token")
+    feature_data_len = 1 + 4 + byte_size(token_bin) + byte_size(nonce)
+
     expected =
-      <<16, 1, 1, 7, 0, 0, 1, 0>> <>
-        <<255, 0, 0, 0>> <>
+      <<16, 1, 1, 19, 0, 0, 1, 0>> <>
+        <<11, 1, 0, 0>> <>
         <<4, 0, 0, 116, 0, 16, 0, 0, 4, 0, 0, 7, 0, 0, 3, 34, 0, 0, 0, 0>> <>
         <<0, 0, 0, 16, 0, 0, 0, 0, 9, 4, 0, 0>> <>
         <<94, 0, 13, 0>> <>
@@ -101,8 +106,8 @@ defmodule Login7Test do
         <<79, 0, 68, 0, 66, 0, 67, 0>> <>
         <<109, 0, 121, 0, 95, 0, 100, 0, 97, 0, 116, 0, 97, 0, 98, 0, 97, 0, 115, 0, 101, 0>> <>
         <<200, 0, 0, 0>> <>
-        <<2, 49, 0, 0, 0, 129, 12, 0, 0, 0>> <>
-        "access-token" <> nonce <> <<255>>
+        <<2, feature_data_len::little-size(32), 3, byte_size(token_bin)::little-size(32)>> <>
+        token_bin <> nonce <> <<255>>
 
     assert Login7.encode(login) == [expected]
   end

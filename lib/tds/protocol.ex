@@ -504,6 +504,11 @@ defmodule Tds.Protocol do
 
       {:error, _, _} = err ->
         err
+
+      {:error, reason} ->
+        # e.g a ROUTING redirect (message/3 :login clause) that failed to
+        # reconnect: connect/1 returns {:error, exception}, a 2-tuple
+        {:error, reason, s}
     end
   end
 
